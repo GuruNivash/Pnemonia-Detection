@@ -1,0 +1,73 @@
+import matplotlib.pyplot as plt
+import tensorflow
+from tensorflow.keras.preprocessing import image
+from tensorflow.keras.layers import GlobalMaxPooling2D
+from tensorflow.keras.applications.resnet50 import ResNet50, preprocess_input
+import numpy as np
+from numpy.linalg import norm
+import os
+from tqdm import tqdm
+import pickle
+from sklearn.neighbors import NearestNeighbors
+
+def extract_features(img_path, model):
+    img = image.load_img(img_path,target_size=(224,224))
+    img_array = image.img_to_array(img)
+    expanded_img_array = np.expand_dims(img_array,axis=0)
+    preprocessed_image = preprocess_input(expanded_img_array)
+    result = model.predict(preprocessed_image).flatten()
+    normalized_result = result/norm(result)
+    return normalized_result
+model = ResNet50(weights='imagenet', include_top=False, input_shape=(224, 224, 3)) # standard size
+model.trainable = False # model already trained, we just use the model
+model = tensorflow.keras.Sequential([
+    model,
+    GlobalMaxPooling2D()
+])
+
+#writing all the file names into a list
+filenames = []
+for file in os.listdir('NORMAL'):
+    filenames.append(os.path.join("NORMAL",file))
+print(filenames[:5])
+pickle.dump(filenames,open("filenames.pkl", "wb"))
+['NORMAL\\IM-0115-0001.jpeg', 'NORMAL\\IM-0117-0001.jpeg', 'NORMAL\\IM-0119-0001.jpeg', 'NORMAL\\IM-0122-0001.jpeg', 'NORMAL\\IM-0125-0001.jpeg']
+feature_list = []
+for file in tqdm(filenames):
+    feature_list.append(extract_features(file,model))
+
+pickle.dump(feature_list,open("embeddings.pkl", "wb"))
+
+#writing all the pnemonia file names into a list
+pneumonia_filenames = []
+for file in os.listdir('PNEUMONIA'):
+    pneumonia_filenames.append(os.path.join("PNEUMONIA",file))
+print(pneumonia_filenames[:5])
+pickle.dump(pneumonia_filenames,open("pneumonia_filenames.pkl", "wb"))
+pneumonia_feature_list = []
+# pneumonia_filenames = pickle.load(open('pneumonia_filenames.pkl', 'rb'))
+for file in tqdm(pneumonia_filenames):
+    pneumonia_feature_list.append(extract_features(file,model))
+
+pickle.dump(pneumonia_feature_list,open("pneumonia_embeddings.pkl", "wb"))
+# getting features of test image
+test_file = "AMS_icon.png"
+test_features = extract_features(test_file,model)
+print(test_features)
+neighbours = NearestNeighbors(n_neighbors=5, algorithm='brute', metric='euclidean')
+neighbours.fit(feature_list)
+distances, indices = neighbours.kneighbors([test_features])
+values = distances.mean(axis=1)
+print(values)
+effected_neighbours = NearestNeighbors(n_neighbors=5, algorithm='brute', metric='euclidean')
+effected_neighbours.fit(pneumonia_feature_list)
+effected_distances, effected_indices = effected_neighbours.kneighbors([test_features])
+effected_values = effected_distances.mean(axis=1)
+print(effected_values)
+
+if(values[0] <0.46):
+    print("The image is normal")
+elif(effected_values[0]>0.5):
+    print("Please upload a proper chest x-ray")
+else:
+    print("The image is a pnemonia")
